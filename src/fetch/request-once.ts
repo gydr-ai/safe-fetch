@@ -20,6 +20,31 @@ import { pinnedLookup } from "./pinned-lookup.js"
  * @param incoming - the response from `http.request`.
  * @returns the headers.
  */
+/**
+ * A reason phrase `Response` accepts (RFC 9110: HTAB, SP, VCHAR, obs-text),
+ * or `""`. Node's parser accepts bytes such as DEL that `Response` rejects,
+ * and that rejection must never escape the response callback.
+ *
+ * @param message - The raw reason phrase Node parsed, if any.
+ * @returns The phrase unchanged when valid, otherwise an empty string.
+ */
+function safeStatusText(message: string | undefined): string {
+  if (message === undefined) return ""
+
+  for (const char of message) {
+    const code = char.charCodeAt(0)
+    const valid =
+      code === 0x09 ||
+      code === 0x20 ||
+      (code >= 0x21 && code <= 0x7e) ||
+      (code >= 0x80 && code <= 0xff)
+
+    if (!valid) return ""
+  }
+
+  return message
+}
+
 function responseHeadersOf(incoming: http.IncomingMessage): Headers {
   const headers = new Headers()
 
@@ -111,6 +136,24 @@ export function requestOnce(
           reject(error)
         }
 
+        // Building a Response must never throw out of this callback: an
+        // exception here is uncaught and would end the process.
+        const settle = (build: () => Response): void => {
+          try {
+            resolve(build())
+          } catch (error) {
+            incoming.destroy()
+            signal.removeEventListener("abort", onAbort)
+            reject(
+              new SafeFetchError(
+                SafeFetchErrorCode.NETWORK_ERROR,
+                "Response could not be read",
+                { cause: error },
+              ),
+            )
+          }
+        }
+
         const status = incoming.statusCode ?? 0
 
         // Node accepts 100-999; a Response only 200-599 (1xx never get here).
@@ -128,7 +171,7 @@ export function requestOnce(
         const responseHeaders = responseHeadersOf(incoming)
         const init = {
           status,
-          statusText: incoming.statusMessage ?? "",
+          statusText: safeStatusText(incoming.statusMessage),
           headers: responseHeaders,
         }
         const hasBody = !NULL_BODY_STATUSES.has(status) && hop.method !== "HEAD"
@@ -137,7 +180,7 @@ export function requestOnce(
           incoming.destroy()
           signal.removeEventListener("abort", onAbort)
           settled = true
-          resolve(new Response(null, init))
+          settle(() => new Response(null, init))
 
           return
         }
@@ -180,13 +223,14 @@ export function requestOnce(
         }
 
         settled = true
-        resolve(
-          new Response(
-            bodyStream(incoming, decoders, context.maxResponseBytes, () => {
-              signal.removeEventListener("abort", onAbort)
-            }),
-            init,
-          ),
+        settle(
+          () =>
+            new Response(
+              bodyStream(incoming, decoders, context.maxResponseBytes, () => {
+                signal.removeEventListener("abort", onAbort)
+              }),
+              init,
+            ),
         )
       },
     )
@@ -200,9 +244,15 @@ export function requestOnce(
     signal.addEventListener("abort", onAbort, { once: true })
 
     request.on("error", (error) => {
-      signal.removeEventListener("abort", onAbort)
+      if (settled) {
+        // The body may still be streaming: end it, and keep the deadline
+        // listener until the body stream's own teardown removes it.
+        response?.destroy(error)
 
-      if (settled) return
+        return
+      }
+
+      signal.removeEventListener("abort", onAbort)
 
       settled = true
       reject(

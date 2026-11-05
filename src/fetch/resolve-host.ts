@@ -95,10 +95,13 @@ async function lookupAndVet(
     }
   }
 
-  return records.map((record) => ({
-    address: normalizeAddress(record.address),
-    family: record.family === 6 ? 6 : 4,
-  }))
+  // The family is derived from the address itself, never trusted from the
+  // resolver, so the pin can never pair an address with the wrong family.
+  return records.map((record) => {
+    const address = normalizeAddress(record.address)
+
+    return { address, family: ipVersion(address) === 6 ? 6 : 4 }
+  })
 }
 
 /**

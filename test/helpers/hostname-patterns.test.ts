@@ -56,3 +56,17 @@ describe("compileHostnamePatterns with international and odd names", () => {
     },
   )
 })
+
+describe("compileHostnamePatterns with IP literals", () => {
+  it("matches IP literals written in any notation the URL parser accepts", () => {
+    const matches = compileHostnamePatterns(
+      ["0:0:0:0:0:0:0:1", "2001:DB8::0001", "127.000.000.001"],
+      "blockedHostnames",
+    )
+
+    expect(matches(new URL("https://[::1]/").hostname.slice(1, -1))).toBe(true)
+    expect(matches("2001:db8::1")).toBe(true)
+    expect(matches("127.0.0.1")).toBe(true)
+    expect(matches("::2")).toBe(false)
+  })
+})

@@ -522,6 +522,52 @@ describe("hostile servers", () => {
     }
   })
 
+  it("keeps the process alive when the reason phrase is not valid", async () => {
+    const raw = createTcpServer((socket) => {
+      socket.once("data", () => {
+        socket.end(
+          Buffer.from(
+            "HTTP/1.1 200 O\u007fK\r\ncontent-length: 2\r\n\r\nhi",
+            "latin1",
+          ),
+        )
+      })
+    })
+
+    await new Promise<void>((resolve) => raw.listen(0, SERVER_IP, resolve))
+    const rawPort = (raw.address() as AddressInfo).port
+
+    try {
+      const response = await safeFetch(
+        `http://public.test:${String(rawPort)}/`,
+        {},
+        opts,
+      )
+
+      expect(response.status).toBe(200)
+      expect(response.statusText).toBe("")
+      expect(await response.text()).toBe("hi")
+    } finally {
+      raw.close()
+    }
+  })
+
+  it("does not read the body when the URL is refused", async () => {
+    let read = false
+    const body = new Blob(["payload"])
+    const original = body.arrayBuffer.bind(body)
+
+    body.arrayBuffer = () => {
+      read = true
+      return original()
+    }
+
+    await expect(
+      safeFetch("http://127.0.0.2/", { method: "POST", body }, opts),
+    ).rejects.toMatchObject({ reason: UnsafeUrlReason.BLOCKED_ADDRESS })
+    expect(read).toBe(false)
+  })
+
   it.each(["GET\r\nX: y", "G T", ""])(
     "refuses the invalid method %j as a SafeFetchError",
     async (method) => {

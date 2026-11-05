@@ -25,7 +25,17 @@ function canonical(hostname: string): string {
  * @returns the URL form, or `undefined` when the name is not valid.
  */
 function urlForm(body: string): string | undefined {
-  if (ipVersion(body) !== 0) return normalizeAddress(body)
+  switch (ipVersion(body)) {
+    case 4:
+      return new URL(`http://${normalizeAddress(body)}/`).hostname
+    case 6:
+      // The URL parser's compressed form, which is what request hosts use.
+      return normalizeAddress(
+        new URL(`http://[${normalizeAddress(body)}]/`).hostname,
+      )
+    case 0:
+      break
+  }
 
   if (
     body === "" ||

@@ -101,6 +101,14 @@ export function fetchWith(dependencies: SafeFetchDependencies) {
       )
     }
 
+    // Validate the URL before reading the body: a refused URL never costs a
+    // read of the request body.
+    const firstUrl = checkUrl(
+      input,
+      options,
+      dependencies.isBlockedAddress,
+      dependencies.isRefusedHostname,
+    )
     const encoded = await encodeBody(ownProperty(init, "body"))
     const headers = mergeHeaders(
       dependencies.headers,
@@ -120,12 +128,7 @@ export function fetchWith(dependencies: SafeFetchDependencies) {
     }
 
     let hop: HopRequest = {
-      url: checkUrl(
-        input,
-        options,
-        dependencies.isBlockedAddress,
-        dependencies.isRefusedHostname,
-      ),
+      url: firstUrl,
       method: normalizeMethod(ownProperty(init, "method")),
       headers,
       body: encoded?.bytes,

@@ -42,6 +42,12 @@ export function pinnedLookup(
         wanted = addresses
     }
 
+    if (options.all === true && wanted.length === 0) {
+      callback(new Error("No address of the requested family"), [])
+
+      return
+    }
+
     if (options.all === true) {
       callback(
         null,

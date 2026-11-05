@@ -63,3 +63,28 @@ describe("pinnedLookup", () => {
     ).rejects.toThrow("No address of the requested family")
   })
 })
+
+describe("pinnedLookup with no address of the requested family", () => {
+  it("answers an error, never an empty list", async () => {
+    const v4only = pinnedLookup("example.com", [
+      { address: "1.1.1.1", family: 4 },
+    ])
+    const outcome = await new Promise<{ error: Error | null; count: number }>(
+      (resolve) => {
+        v4only(
+          "example.com",
+          { family: 6, all: true },
+          (error: Error | null, address: string | LookupAddress[]) => {
+            resolve({
+              error,
+              count: Array.isArray(address) ? address.length : 1,
+            })
+          },
+        )
+      },
+    )
+
+    expect(outcome.error).toBeInstanceOf(Error)
+    expect(outcome.count).toBe(0)
+  })
+})

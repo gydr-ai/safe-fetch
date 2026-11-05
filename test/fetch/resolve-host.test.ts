@@ -71,4 +71,16 @@ describe("resolveHost", () => {
       code: SafeFetchErrorCode.DNS_FAILURE,
     })
   })
+
+  it("derives each address family from the address, not the resolver", async () => {
+    const resolved = await resolveWith([
+      { address: "127.0.0.1", family: 6 },
+      { address: "::ffff:127.0.0.2", family: 4 },
+    ])
+
+    expect(resolved).toEqual([
+      { address: "127.0.0.1", family: 4 },
+      { address: "::ffff:127.0.0.2", family: 6 },
+    ])
+  })
 })
