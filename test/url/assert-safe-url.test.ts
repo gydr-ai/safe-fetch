@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { assertSafeUrl, UnsafeUrlError, UnsafeUrlReason } from "../src/url.js"
+import {
+  UnsafeUrlError,
+  UnsafeUrlReason,
+} from "../../src/errors/unsafe-url-error.js"
+import { assertSafeUrl } from "../../src/url/assert-safe-url.js"
 
 function reasonOf(run: () => unknown): string | undefined {
   try {
@@ -124,5 +128,33 @@ describe("assertSafeUrl", () => {
     expect(() => assertSafeUrl("http://x", { label: "Webhook URL" })).toThrow(
       "Webhook URL must use the https: scheme",
     )
+  })
+})
+
+describe("assertSafeUrl input hardening", () => {
+  it("refuses a policy value that would disable a limit", () => {
+    expect(() =>
+      assertSafeUrl("https://example.com", { maxLength: Number.NaN }),
+    ).toThrow(TypeError)
+  })
+
+  it.each([
+    "https://example.com../",
+    "https://a..example.com/",
+    "https://.example.com/",
+  ])("refuses the empty hostname label in %s", (url) => {
+    expect(reasonOf(() => assertSafeUrl(url))).toBe(
+      UnsafeUrlReason.MALFORMED_URL,
+    )
+  })
+
+  it("still accepts one trailing dot", () => {
+    expect(assertSafeUrl("https://example.com./").hostname).toBe("example.com.")
+  })
+})
+
+describe("error code objects", () => {
+  it("are frozen", () => {
+    expect(Object.isFrozen(UnsafeUrlReason)).toBe(true)
   })
 })

@@ -34,6 +34,7 @@ first version is published once by a maintainer.
    pnpm install --frozen-lockfile && pnpm check
    npm publish --access public   # asks for your npm 2FA code
    ```
+
 2. **Trusted publisher**: on npmjs.com open the package → Settings →
    Trusted publishing → GitHub Actions, and enter:
    - Organization or user: `gydr-ai`

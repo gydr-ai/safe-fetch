@@ -23,11 +23,12 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./dist/types/index.d.ts",
       "default": "./dist/index.js"
     },
     "./package.json": "./package.json"
   },
+  "types": "./dist/types/index.d.ts",
   "files": [
     "dist",
     "NOTICE"
@@ -42,19 +43,25 @@
     "provenance": true
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "biome check .",
-    "format": "biome check --write .",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write . && eslint --fix .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "check": "pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm build"
+    "check": "pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm build && pnpm test:dist",
+    "test:dist": "node scripts/check-dist.mjs"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.5",
     "@types/node": "26.6.6",
-    "@vitest/coverage-v8": "5.1.0",
-    "typescript": "7.0.2",
-    "vitest": "5.1.0"
+    "@vitest/coverage-v8": "4.1.12",
+    "@vitest/eslint-plugin": "1.6.28",
+    "esbuild": "0.28.2",
+    "eslint": "10.13.0",
+    "eslint-plugin-jsdoc": "65.4.2",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "4.1.12"
   }
 }

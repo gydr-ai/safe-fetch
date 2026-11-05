@@ -1,21 +1,20 @@
 # Supply-chain hardening (pnpm 11).
-# Refuse to resolve a version published less than a day ago: most malicious
-# releases are caught and unpublished within hours.
-minimumReleaseAge: 1440
-# Exact versions deliberately taken on release day. Each entry names one
-# version; delete it once that version is a day old.
-minimumReleaseAgeExclude:
-  - typescript@7.0.2
-  - "@biomejs/biome@2.6.5"
-  - "@biomejs/cli-android-arm64@2.6.5"
-  - "@biomejs/cli-android-x64@2.6.5"
-  - "@biomejs/cli-darwin-arm64@2.6.5"
-  - "@biomejs/cli-darwin-x64@2.6.5"
-  - "@biomejs/cli-linux-arm64@2.6.5"
-  - "@biomejs/cli-linux-arm64-musl@2.6.5"
-  - "@biomejs/cli-linux-x64@2.6.5"
-  - "@biomejs/cli-linux-x64-musl@2.6.5"
-  - "@biomejs/cli-win32-arm64@2.6.5"
-  - "@biomejs/cli-win32-x64@2.6.5"
+# Refuse to resolve a version published less than 7 days ago. Worms such as
+# Shai-Hulud spread through freshly published versions that were found and
+# pulled within days.
+minimumReleaseAge: 10080
 # Never run install scripts from dependencies.
 strictDepBuilds: true
+# Fail if a package's provenance or trusted-publisher evidence is weaker than
+# in an earlier version: the signature of a hijacked maintainer account.
+trustPolicy: no-downgrade
+# Refuse dependencies resolved from git URLs or tarballs.
+blockExoticSubdeps: true
+# Security overrides for transitive dev dependencies. Remove each once the
+# packages that pull it in depend on a patched version themselves.
+overrides:
+  # GHSA-g3hv-75wg-m249 (ReDoS-style DoS), via eslint and typescript-eslint.
+  minimatch: "11.0.3"
+# Dependencies allowed (or explicitly denied) to run install scripts.
+allowBuilds:
+  esbuild: false # binary comes from its optional platform package; its postinstall only verifies it
