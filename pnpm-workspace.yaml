@@ -1,0 +1,21 @@
+# Supply-chain hardening (pnpm 11).
+# Refuse to resolve a version published less than a day ago: most malicious
+# releases are caught and unpublished within hours.
+minimumReleaseAge: 1440
+# Exact versions deliberately taken on release day. Each entry names one
+# version; delete it once that version is a day old.
+minimumReleaseAgeExclude:
+  - typescript@7.0.2
+  - "@biomejs/biome@2.6.5"
+  - "@biomejs/cli-android-arm64@2.6.5"
+  - "@biomejs/cli-android-x64@2.6.5"
+  - "@biomejs/cli-darwin-arm64@2.6.5"
+  - "@biomejs/cli-darwin-x64@2.6.5"
+  - "@biomejs/cli-linux-arm64@2.6.5"
+  - "@biomejs/cli-linux-arm64-musl@2.6.5"
+  - "@biomejs/cli-linux-x64@2.6.5"
+  - "@biomejs/cli-linux-x64-musl@2.6.5"
+  - "@biomejs/cli-win32-arm64@2.6.5"
+  - "@biomejs/cli-win32-x64@2.6.5"
+# Never run install scripts from dependencies.
+strictDepBuilds: true

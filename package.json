@@ -1,0 +1,60 @@
+{
+  "name": "@gydr-ai/safe-fetch",
+  "version": "0.1.0",
+  "description": "SSRF-safe fetch for Node.js: blocks private and metadata addresses, pins the socket against DNS rebinding, re-checks every redirect, caps time and size.",
+  "keywords": [
+    "ssrf",
+    "fetch",
+    "dns-rebinding",
+    "security",
+    "webhook",
+    "ai-agent",
+    "mcp",
+    "url-validation"
+  ],
+  "homepage": "https://github.com/gydr-ai/safe-fetch#readme",
+  "bugs": "https://github.com/gydr-ai/safe-fetch/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gydr-ai/safe-fetch.git"
+  },
+  "license": "Apache-2.0",
+  "author": "Gydr.ai",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "NOTICE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12"
+  },
+  "packageManager": "pnpm@11.1.2",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "check": "pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.5",
+    "@types/node": "26.6.6",
+    "@vitest/coverage-v8": "5.1.0",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}
