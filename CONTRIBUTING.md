@@ -15,19 +15,20 @@ Requirements: Node.js 22.12 or later and pnpm 11 (`corepack enable`).
 
 ```bash
 pnpm install
-pnpm check   # lint, type-check, tests with coverage, build
+pnpm check   # lint, type-check, tests with coverage, build, built-output check
 ```
 
 Useful scripts:
 
-| Script               | What it does                     |
-| -------------------- | -------------------------------- |
-| `pnpm test`          | Run the test suite               |
-| `pnpm test:coverage` | Tests with coverage thresholds   |
-| `pnpm lint`          | Biome lint and format check      |
-| `pnpm format`        | Apply Biome fixes and formatting |
-| `pnpm typecheck`     | TypeScript, including the tests  |
-| `pnpm build`         | Emit `dist/`                     |
+| Script               | What it does                                         |
+| -------------------- | ---------------------------------------------------- |
+| `pnpm test`          | Run the test suite                                   |
+| `pnpm test:coverage` | Tests with coverage thresholds                       |
+| `pnpm lint`          | ESLint (strict, type-aware) and Prettier check       |
+| `pnpm format`        | Apply Prettier and ESLint fixes                      |
+| `pnpm typecheck`     | TypeScript, including the tests                      |
+| `pnpm build`         | Minified ESM bundle and type declarations in `dist/` |
+| `pnpm test:dist`     | Load the built bundle and check its exports          |
 
 ## Pull requests
 

@@ -1,189 +1,41 @@
-import type { LookupAddress } from "node:dns"
-import {
-  createServer,
-  type IncomingMessage,
-  type Server,
-  type ServerResponse,
-} from "node:http"
 import type { AddressInfo } from "node:net"
 import { createServer as createTcpServer } from "node:net"
-import { brotliCompressSync, gzipSync } from "node:zlib"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
 import {
-  createSafeFetch,
-  resolveSafeUrl,
   SafeFetchError,
   SafeFetchErrorCode,
-} from "../src/fetch.js"
-import { UnsafeUrlError, UnsafeUrlReason } from "../src/url.js"
+} from "../../src/errors/safe-fetch-error.js"
+import {
+  UnsafeUrlError,
+  UnsafeUrlReason,
+} from "../../src/errors/unsafe-url-error.js"
+import { createSafeFetch } from "../../src/fetch/create-safe-fetch.js"
+import {
+  at,
+  type EchoedRequest,
+  fakeLookup,
+  fixture,
+  rejection,
+  resetFixture,
+  SERVER_IP,
+  startTestServer,
+  stopTestServer,
+  redirectPath,
+} from "../support/test-server.js"
 
-// The test server listens on 127.0.0.1. These tests treat 127.0.0.1 as a
-// "public" address and 10.9.9.9 as the private target an attacker wants, so
-// the real network policy is exercised without leaving the machine.
-const SERVER_IP = "127.0.0.1"
-const PRIVATE_IP = "10.9.9.9"
-
-let server: Server
-let port = 0
-let lastRequest: {
-  method: string
-  headers: IncomingMessage["headers"]
-  body: string
-}
-const requests: string[] = []
-const lookups: string[] = []
-let dnsAnswers: Record<string, LookupAddress[]> = {}
-const stalled: ServerResponse[] = []
-
-function readBody(request: IncomingMessage): Promise<string> {
-  return new Promise((resolve) => {
-    const chunks: Buffer[] = []
-
-    request.on("data", (chunk: Buffer) => chunks.push(chunk))
-    request.on("end", () => resolve(Buffer.concat(chunks).toString()))
-  })
-}
-
-beforeAll(async () => {
-  server = createServer(async (request, response) => {
-    const url = new URL(request.url ?? "/", "http://placeholder")
-    const body = await readBody(request)
-
-    lastRequest = {
-      method: request.method ?? "",
-      headers: request.headers,
-      body,
-    }
-    requests.push(url.pathname)
-
-    switch (url.pathname) {
-      case "/ok":
-        response.setHeader("x-test", "yes")
-        response.end("hello")
-        return
-      case "/echo":
-        response.setHeader("content-type", "application/json")
-        response.end(JSON.stringify(lastRequest))
-        return
-      case "/redirect": {
-        response.statusCode = Number(url.searchParams.get("status") ?? 302)
-        response.setHeader("location", url.searchParams.get("to") ?? "/ok")
-        response.end()
-        return
-      }
-      case "/redirect-with-body":
-        response.statusCode = 302
-        response.setHeader("location", "/ok")
-        response.end("x".repeat(200_000))
-        return
-      case "/stall-over-cap":
-        response.write("x".repeat(5000))
-        stalled.push(response)
-        return
-      case "/gzip-twice":
-        response.setHeader("content-encoding", "gzip, gzip")
-        response.end(gzipSync(gzipSync("twice")))
-        return
-      case "/bad-gzip":
-        response.setHeader("content-encoding", "gzip")
-        response.end("not gzip at all")
-        return
-      case "/unknown-encoding":
-        response.setHeader("content-encoding", "zstd")
-        response.end("opaque")
-        return
-      case "/loop":
-        response.statusCode = 302
-        response.setHeader("location", "/loop")
-        response.end()
-        return
-      case "/big-declared":
-        response.setHeader("content-length", "5000")
-        response.end("x".repeat(5000))
-        return
-      case "/big-chunked":
-        response.write("x".repeat(3000))
-        response.end("x".repeat(3000))
-        return
-      case "/gzip":
-        response.setHeader("content-encoding", "gzip")
-        response.end(gzipSync("compressed hello"))
-        return
-      case "/br":
-        response.setHeader("content-encoding", "br")
-        response.end(brotliCompressSync("brotli hello"))
-        return
-      case "/bomb":
-        response.setHeader("content-encoding", "gzip")
-        response.end(gzipSync(Buffer.alloc(50 * 1024 * 1024)))
-        return
-      case "/slow":
-        setTimeout(() => response.end("late"), 500)
-        return
-      case "/slow-body":
-        response.write("start")
-        setTimeout(() => response.end("end"), 500)
-        return
-      case "/no-content":
-        response.statusCode = 204
-        response.end()
-        return
-      default:
-        response.statusCode = 404
-        response.end()
-    }
-  })
-
-  await new Promise<void>((resolve) => server.listen(0, SERVER_IP, resolve))
-  port = (server.address() as AddressInfo).port
-})
-
-afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()))
-})
-
-beforeEach(() => {
-  requests.length = 0
-  lookups.length = 0
-  dnsAnswers = {
-    "public.test": [{ address: SERVER_IP, family: 4 }],
-    "other.test": [{ address: SERVER_IP, family: 4 }],
-    "evil.test": [{ address: PRIVATE_IP, family: 4 }],
-    "rebind.test": [
-      { address: SERVER_IP, family: 4 },
-      { address: PRIVATE_IP, family: 4 },
-    ],
-  }
-})
+beforeAll(startTestServer)
+afterAll(stopTestServer)
+beforeEach(resetFixture)
 
 const safeFetch = createSafeFetch({
-  lookup: async (hostname) => {
-    lookups.push(hostname)
-    const answer = dnsAnswers[hostname]
-
-    if (answer === undefined) throw new Error("ENOTFOUND")
-
-    return answer
-  },
+  lookup: fakeLookup,
   // The public allowedRanges option lets the loopback test server stand in
   // for a public host; everything else keeps the built-in policy.
   allowedRanges: ["127.0.0.1/32"],
 })
 
 const opts = { allowHttp: true }
-const at = (host: string, path: string): string =>
-  `http://${host}:${port}${path}`
-
-async function rejection(promise: Promise<unknown>): Promise<unknown> {
-  try {
-    await promise
-  } catch (error) {
-    return error
-  }
-
-  throw new Error("expected a rejection")
-}
 
 describe("safeFetch", () => {
   it("returns a standard Response for an allowed host", async () => {
@@ -199,7 +51,7 @@ describe("safeFetch", () => {
   it("resolves once and connects to the address it checked", async () => {
     await (await safeFetch(at("public.test", "/ok"), {}, opts)).text()
 
-    expect(lookups).toEqual(["public.test"])
+    expect(fixture.lookups).toEqual(["public.test"])
   })
 
   it("refuses a host whose answer contains any private address", async () => {
@@ -209,7 +61,7 @@ describe("safeFetch", () => {
     expect((error as UnsafeUrlError).reason).toBe(
       UnsafeUrlReason.BLOCKED_ADDRESS,
     )
-    expect(requests).toEqual([])
+    expect(fixture.requests).toEqual([])
   })
 
   it("reports a name that does not resolve", async () => {
@@ -228,7 +80,7 @@ describe("safeFetch", () => {
     expect((error as UnsafeUrlError).reason).toBe(
       UnsafeUrlReason.BLOCKED_ADDRESS,
     )
-    expect(lookups).toEqual([])
+    expect(fixture.lookups).toEqual([])
   })
 
   it("sends the original Host header and drops a caller override", async () => {
@@ -237,9 +89,9 @@ describe("safeFetch", () => {
       { headers: { host: "internal.example", connection: "upgrade" } },
       opts,
     )
-    const echoed = (await response.json()) as typeof lastRequest
+    const echoed = (await response.json()) as EchoedRequest
 
-    expect(echoed.headers.host).toBe(`public.test:${port}`)
+    expect(echoed.headers.host).toBe(`public.test:${fixture.port}`)
     expect(echoed.headers.connection).not.toBe("upgrade")
   })
 
@@ -249,7 +101,7 @@ describe("safeFetch", () => {
       { method: "post", body: "payload" },
       opts,
     )
-    const echoed = (await response.json()) as typeof lastRequest
+    const echoed = (await response.json()) as EchoedRequest
 
     expect(echoed.method).toBe("POST")
     expect(echoed.body).toBe("payload")
@@ -268,7 +120,7 @@ describe("safeFetch", () => {
       { method: "POST", body },
       opts,
     )
-    const echoed = (await response.json()) as typeof lastRequest
+    const echoed = (await response.json()) as EchoedRequest
 
     expect(echoed.body).toBe(expected)
   })
@@ -344,7 +196,7 @@ describe("safeFetch", () => {
       const to = encodeURIComponent(at("evil.test", "/ok"))
       const error = await rejection(
         safeFetch(
-          at("public.test", `/redirect?to=${to}`),
+          at("public.test", redirectPath(decodeURIComponent(to))),
           { redirect: "follow" },
           opts,
         ),
@@ -353,14 +205,14 @@ describe("safeFetch", () => {
       expect((error as UnsafeUrlError).reason).toBe(
         UnsafeUrlReason.BLOCKED_ADDRESS,
       )
-      expect(lookups).toEqual(["public.test", "evil.test"])
+      expect(fixture.lookups).toEqual(["public.test", "evil.test"])
     })
 
     it("refuses a redirect to a metadata IP literal", async () => {
       const to = encodeURIComponent("http://169.254.169.254/latest/meta-data/")
       const error = await rejection(
         safeFetch(
-          at("public.test", `/redirect?to=${to}`),
+          at("public.test", redirectPath(decodeURIComponent(to))),
           { redirect: "follow" },
           opts,
         ),
@@ -375,10 +227,7 @@ describe("safeFetch", () => {
       // Exercised through the policy: the hop is judged with the same options.
       const error = await rejection(
         safeFetch(
-          at(
-            "public.test",
-            `/redirect?to=${encodeURIComponent("ftp://public.test/")}`,
-          ),
+          at("public.test", redirectPath("ftp://public.test/")),
           { redirect: "follow" },
           opts,
         ),
@@ -392,7 +241,7 @@ describe("safeFetch", () => {
     it("drops credentials on a cross-origin redirect", async () => {
       const to = encodeURIComponent(at("other.test", "/echo"))
       const response = await safeFetch(
-        at("public.test", `/redirect?to=${to}`),
+        at("public.test", redirectPath(decodeURIComponent(to))),
         {
           redirect: "follow",
           headers: {
@@ -404,7 +253,7 @@ describe("safeFetch", () => {
         },
         opts,
       )
-      const echoed = (await response.json()) as typeof lastRequest
+      const echoed = (await response.json()) as EchoedRequest
 
       expect(echoed.headers.authorization).toBeUndefined()
       expect(echoed.headers.cookie).toBeUndefined()
@@ -414,22 +263,22 @@ describe("safeFetch", () => {
 
     it("keeps credentials on a same-origin redirect", async () => {
       const response = await safeFetch(
-        at("public.test", "/redirect?to=/echo"),
+        at("public.test", redirectPath("/echo")),
         { redirect: "follow", headers: { authorization: "Bearer kept" } },
         opts,
       )
-      const echoed = (await response.json()) as typeof lastRequest
+      const echoed = (await response.json()) as EchoedRequest
 
       expect(echoed.headers.authorization).toBe("Bearer kept")
     })
 
     it("turns a 303 after POST into a GET without the body", async () => {
       const response = await safeFetch(
-        at("public.test", "/redirect?status=303&to=/echo"),
+        at("public.test", redirectPath("/echo", 303)),
         { method: "POST", body: "data", redirect: "follow" },
         opts,
       )
-      const echoed = (await response.json()) as typeof lastRequest
+      const echoed = (await response.json()) as EchoedRequest
 
       expect(echoed.method).toBe("GET")
       expect(echoed.body).toBe("")
@@ -438,11 +287,11 @@ describe("safeFetch", () => {
 
     it("keeps method and body on a 307", async () => {
       const response = await safeFetch(
-        at("public.test", "/redirect?status=307&to=/echo"),
+        at("public.test", redirectPath("/echo", 307)),
         { method: "PUT", body: "data", redirect: "follow" },
         opts,
       )
-      const echoed = (await response.json()) as typeof lastRequest
+      const echoed = (await response.json()) as EchoedRequest
 
       expect(echoed.method).toBe("PUT")
       expect(echoed.body).toBe("data")
@@ -460,7 +309,7 @@ describe("safeFetch", () => {
       expect((error as SafeFetchError).code).toBe(
         SafeFetchErrorCode.TOO_MANY_REDIRECTS,
       )
-      expect(requests).toHaveLength(3)
+      expect(fixture.requests).toHaveLength(3)
     })
   })
 
@@ -510,7 +359,7 @@ describe("safeFetch", () => {
 
     it("advertises the encodings it decodes", async () => {
       const response = await safeFetch(at("public.test", "/echo"), {}, opts)
-      const echoed = (await response.json()) as typeof lastRequest
+      const echoed = (await response.json()) as EchoedRequest
 
       expect(echoed.headers["accept-encoding"]).toBe("gzip, deflate, br")
     })
@@ -580,7 +429,9 @@ describe("safeFetch", () => {
         opts,
       )
 
-      setTimeout(() => controller.abort(reason), 50)
+      setTimeout(() => {
+        controller.abort(reason)
+      }, 50)
 
       expect(await rejection(pending)).toBe(reason)
     })
@@ -596,7 +447,7 @@ describe("safeFetch", () => {
       )
 
       expect(error).toBe(reason)
-      expect(requests).toEqual([])
+      expect(fixture.requests).toEqual([])
     })
   })
 })
@@ -625,6 +476,11 @@ describe("hostile servers", () => {
 
     await response.body?.cancel()
     await new Promise((resolve) => setTimeout(resolve, 50))
+
+    // The process is still healthy: the next request completes normally.
+    const next = await safeFetch(at("public.test", "/ok"), {}, opts)
+
+    expect(await next.text()).toBe("hello")
   })
 
   it("closes the socket when the size cap is hit on a stalled body", async () => {
@@ -641,7 +497,7 @@ describe("hostile servers", () => {
       code: SafeFetchErrorCode.RESPONSE_TOO_LARGE,
     })
 
-    const peer = stalled.pop()
+    const peer = fixture.stalled.pop()
 
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(peer?.socket?.destroyed ?? true).toBe(true)
@@ -664,6 +520,80 @@ describe("hostile servers", () => {
     } finally {
       raw.close()
     }
+  })
+
+  it("keeps the process alive when the reason phrase is not valid", async () => {
+    const raw = createTcpServer((socket) => {
+      socket.once("data", () => {
+        socket.end(
+          Buffer.from(
+            "HTTP/1.1 200 O\u007fK\r\ncontent-length: 2\r\n\r\nhi",
+            "latin1",
+          ),
+        )
+      })
+    })
+
+    await new Promise<void>((resolve) => raw.listen(0, SERVER_IP, resolve))
+    const rawPort = (raw.address() as AddressInfo).port
+
+    try {
+      const response = await safeFetch(
+        `http://public.test:${String(rawPort)}/`,
+        {},
+        opts,
+      )
+
+      expect(response.status).toBe(200)
+      expect(response.statusText).toBe("")
+      expect(await response.text()).toBe("hi")
+    } finally {
+      raw.close()
+    }
+  })
+
+  it("ends the body promptly when the connection drops mid-body", async () => {
+    const raw = createTcpServer((socket) => {
+      socket.once("data", () => {
+        socket.write("HTTP/1.1 200 OK\r\ncontent-length: 100000\r\n\r\npartial")
+        setTimeout(() => socket.destroy(), 20)
+      })
+    })
+
+    await new Promise<void>((resolve) => raw.listen(0, SERVER_IP, resolve))
+    const rawPort = (raw.address() as AddressInfo).port
+
+    try {
+      const response = await safeFetch(
+        `http://public.test:${String(rawPort)}/`,
+        {},
+        { ...opts, timeoutMs: 5_000 },
+      )
+      const started = Date.now()
+
+      await expect(response.text()).rejects.toMatchObject({
+        code: SafeFetchErrorCode.NETWORK_ERROR,
+      })
+      expect(Date.now() - started).toBeLessThan(1_000)
+    } finally {
+      raw.close()
+    }
+  })
+
+  it("does not read the body when the URL is refused", async () => {
+    let read = false
+    const body = new Blob(["payload"])
+    const original = body.arrayBuffer.bind(body)
+
+    body.arrayBuffer = () => {
+      read = true
+      return original()
+    }
+
+    await expect(
+      safeFetch("http://127.0.0.2/", { method: "POST", body }, opts),
+    ).rejects.toMatchObject({ reason: UnsafeUrlReason.BLOCKED_ADDRESS })
+    expect(read).toBe(false)
   })
 
   it.each(["GET\r\nX: y", "G T", ""])(
@@ -699,7 +629,7 @@ describe("hostile servers", () => {
 describe("createSafeFetch configuration", () => {
   it("refuses extra blocked ranges on top of the built-in list", async () => {
     const strict = createSafeFetch({
-      lookup: async () => [{ address: SERVER_IP, family: 4 }],
+      lookup: () => Promise.resolve([{ address: SERVER_IP, family: 4 }]),
       allowedRanges: ["127.0.0.1/32"],
       blockedRanges: ["127.0.0.0/8"],
     })
@@ -710,7 +640,11 @@ describe("createSafeFetch configuration", () => {
   })
 
   it("applies allowed ranges to IP literals too", async () => {
-    const response = await safeFetch(`http://${SERVER_IP}:${port}/ok`, {}, opts)
+    const response = await safeFetch(
+      `http://${SERVER_IP}:${fixture.port}/ok`,
+      {},
+      opts,
+    )
 
     expect(await response.text()).toBe("hello")
   })
@@ -731,19 +665,5 @@ describe("createSafeFetch configuration", () => {
   ])("rejects the invalid range %j at construction", (range) => {
     expect(() => createSafeFetch({ blockedRanges: [range] })).toThrow(TypeError)
     expect(() => createSafeFetch({ allowedRanges: [range] })).toThrow(TypeError)
-  })
-})
-
-describe("resolveSafeUrl", () => {
-  it("returns a public IP literal without a lookup", async () => {
-    const result = await resolveSafeUrl("https://1.1.1.1/dns-query")
-
-    expect(result.addresses).toEqual([{ address: "1.1.1.1", family: 4 }])
-  })
-
-  it("refuses a private literal", async () => {
-    await expect(resolveSafeUrl("https://10.0.0.1/")).rejects.toBeInstanceOf(
-      UnsafeUrlError,
-    )
   })
 })
