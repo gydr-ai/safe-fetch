@@ -20,6 +20,7 @@ import {
   resetFixture,
   startTestServer,
   stopTestServer,
+  redirectPath,
 } from "../support/test-server.js"
 
 beforeAll(startTestServer)
@@ -43,10 +44,7 @@ async function echo(response: Response): Promise<EchoedRequest> {
 }
 
 const toOther = (path: string): string =>
-  at(
-    "public.test",
-    `/redirect?to=${encodeURIComponent(at("other.test", path))}`,
-  )
+  at("public.test", redirectPath(at("other.test", path)))
 
 describe("instance defaults", () => {
   it("applies config options and lets a call override them", async () => {
@@ -213,7 +211,7 @@ describe("stripHeadersOnCrossOrigin", () => {
 
   it("keeps them on a same-origin redirect", async () => {
     const echoed = await echo(
-      await stripping(at("public.test", "/redirect?to=/echo"), {
+      await stripping(at("public.test", redirectPath("/echo")), {
         redirect: "follow",
         headers,
       }),
@@ -328,13 +326,13 @@ describe("onRedirect", () => {
     })
 
     await expect(
-      refusing(at("public.test", "/redirect?status=307&to=/ok"), {
+      refusing(at("public.test", redirectPath("/ok", 307)), {
         redirect: "follow",
       }),
     ).rejects.toMatchObject({ code: SafeFetchErrorCode.REDIRECT_NOT_ALLOWED })
     expect(seen).toEqual([
       {
-        from: at("public.test", "/redirect?status=307&to=/ok"),
+        from: at("public.test", redirectPath("/ok", 307)),
         to: at("public.test", "/ok"),
         status: 307,
       },
@@ -354,7 +352,7 @@ describe("onRedirect", () => {
     const to = encodeURIComponent("http://169.254.169.254/")
 
     await expect(
-      permissive(at("public.test", `/redirect?to=${to}`), {
+      permissive(at("public.test", redirectPath(decodeURIComponent(to))), {
         redirect: "follow",
       }),
     ).rejects.toMatchObject({ reason: UnsafeUrlReason.BLOCKED_ADDRESS })
@@ -378,7 +376,7 @@ describe("onRedirect", () => {
         to.pathname = "/no-content"
       },
     })
-    const response = await tampering(at("public.test", "/redirect?to=/ok"), {
+    const response = await tampering(at("public.test", redirectPath("/ok")), {
       redirect: "follow",
     })
 
@@ -407,7 +405,7 @@ describe("onRequest", () => {
     })
 
     await (
-      await observed(at("public.test", "/redirect?status=303&to=/ok"), {
+      await observed(at("public.test", redirectPath("/ok", 303)), {
         method: "PUT",
         body: "secret body",
         headers: { authorization: "Bearer secret" },
@@ -417,7 +415,7 @@ describe("onRequest", () => {
 
     expect(seen).toEqual([
       {
-        url: at("public.test", "/redirect?status=303&to=/ok"),
+        url: at("public.test", redirectPath("/ok", 303)),
         method: "PUT",
         addresses: [{ address: "127.0.0.1", family: 4 }],
       },
@@ -469,7 +467,7 @@ describe("onResponse", () => {
     })
 
     await (
-      await observed(at("public.test", "/redirect?to=/ok"), {
+      await observed(at("public.test", redirectPath("/ok")), {
         redirect: "follow",
       })
     ).text()

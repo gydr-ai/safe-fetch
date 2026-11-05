@@ -61,13 +61,18 @@ for (const file of filesUnder(join(root, "src"))) {
   }
 }
 
+/** Escape every regular-expression metacharacter in a symbol name. */
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
 if (internal.size === 0) failures.push("found no @internal symbols to check")
 
 for (const file of filesUnder(typesDir).filter((f) => f.endsWith(".d.ts"))) {
   const text = readFileSync(file, "utf8")
 
   for (const name of internal) {
-    if (new RegExp(`\\b${name.replace("$", "\\$")}\\b`).test(text)) {
+    if (new RegExp(`\\b${escapeRegExp(name)}\\b`).test(text)) {
       failures.push(`${file.slice(root.length + 1)} mentions @internal ${name}`)
     }
   }

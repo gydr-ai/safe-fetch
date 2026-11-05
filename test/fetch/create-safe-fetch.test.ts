@@ -21,6 +21,7 @@ import {
   SERVER_IP,
   startTestServer,
   stopTestServer,
+  redirectPath,
 } from "../support/test-server.js"
 
 beforeAll(startTestServer)
@@ -195,7 +196,7 @@ describe("safeFetch", () => {
       const to = encodeURIComponent(at("evil.test", "/ok"))
       const error = await rejection(
         safeFetch(
-          at("public.test", `/redirect?to=${to}`),
+          at("public.test", redirectPath(decodeURIComponent(to))),
           { redirect: "follow" },
           opts,
         ),
@@ -211,7 +212,7 @@ describe("safeFetch", () => {
       const to = encodeURIComponent("http://169.254.169.254/latest/meta-data/")
       const error = await rejection(
         safeFetch(
-          at("public.test", `/redirect?to=${to}`),
+          at("public.test", redirectPath(decodeURIComponent(to))),
           { redirect: "follow" },
           opts,
         ),
@@ -226,10 +227,7 @@ describe("safeFetch", () => {
       // Exercised through the policy: the hop is judged with the same options.
       const error = await rejection(
         safeFetch(
-          at(
-            "public.test",
-            `/redirect?to=${encodeURIComponent("ftp://public.test/")}`,
-          ),
+          at("public.test", redirectPath("ftp://public.test/")),
           { redirect: "follow" },
           opts,
         ),
@@ -243,7 +241,7 @@ describe("safeFetch", () => {
     it("drops credentials on a cross-origin redirect", async () => {
       const to = encodeURIComponent(at("other.test", "/echo"))
       const response = await safeFetch(
-        at("public.test", `/redirect?to=${to}`),
+        at("public.test", redirectPath(decodeURIComponent(to))),
         {
           redirect: "follow",
           headers: {
@@ -265,7 +263,7 @@ describe("safeFetch", () => {
 
     it("keeps credentials on a same-origin redirect", async () => {
       const response = await safeFetch(
-        at("public.test", "/redirect?to=/echo"),
+        at("public.test", redirectPath("/echo")),
         { redirect: "follow", headers: { authorization: "Bearer kept" } },
         opts,
       )
@@ -276,7 +274,7 @@ describe("safeFetch", () => {
 
     it("turns a 303 after POST into a GET without the body", async () => {
       const response = await safeFetch(
-        at("public.test", "/redirect?status=303&to=/echo"),
+        at("public.test", redirectPath("/echo", 303)),
         { method: "POST", body: "data", redirect: "follow" },
         opts,
       )
@@ -289,7 +287,7 @@ describe("safeFetch", () => {
 
     it("keeps method and body on a 307", async () => {
       const response = await safeFetch(
-        at("public.test", "/redirect?status=307&to=/echo"),
+        at("public.test", redirectPath("/echo", 307)),
         { method: "PUT", body: "data", redirect: "follow" },
         opts,
       )

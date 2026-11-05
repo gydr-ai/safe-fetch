@@ -33,6 +33,33 @@ export const fixture = {
 
 let server: Server | undefined
 
+/**
+ * Redirect targets, registered by the tests. The `/redirect` route looks the
+ * target up here by id, so no part of a request decides where it redirects.
+ */
+const redirectTargets = new Map<string, string>()
+const redirectIds = new Map<string, string>()
+
+/**
+ * The path of a `/redirect` route that answers `status` with `Location:
+ * target`. The same target and status always give the same path.
+ *
+ * @param target - Absolute or relative `Location` value to send.
+ * @param status - Redirect status code. Default 302.
+ * @returns A path such as `/redirect?id=3&status=302`.
+ */
+export function redirectPath(target: string, status = 302): string {
+  let id = redirectIds.get(target)
+
+  if (id === undefined) {
+    id = String(redirectIds.size + 1)
+    redirectIds.set(target, id)
+    redirectTargets.set(id, target)
+  }
+
+  return `/redirect?id=${id}&status=${String(status)}`
+}
+
 function readBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = []
@@ -70,7 +97,10 @@ async function handle(
         return
       case "/redirect": {
         response.statusCode = Number(url.searchParams.get("status") ?? 302)
-        response.setHeader("location", url.searchParams.get("to") ?? "/ok")
+        response.setHeader(
+          "location",
+          redirectTargets.get(url.searchParams.get("id") ?? "") ?? "/ok",
+        )
         response.end()
         return
       }
