@@ -21,6 +21,9 @@ import { ByteLimit } from "../helpers/byte-limit.js"
  * @param decoders - the content decoders, in the order to apply them.
  * @param maxBytes - the largest decoded body allowed.
  * @param onClose - called once when the stream ends for any reason.
+ * @param passThrough - true for an error that must reach the reader
+ *   unchanged (the caller's own abort reason); every other transport error
+ *   is reported as a `SafeFetchError` with code `network_error`.
  * @returns a byte stream for the `Response` body.
  * @internal
  */
@@ -29,6 +32,7 @@ export function bodyStream(
   decoders: readonly Transform[],
   maxBytes: number,
   onClose: () => void,
+  passThrough: (error: Error) => boolean = () => false,
 ): ReadableStream<Uint8Array> {
   const limit = new ByteLimit(maxBytes)
   const stages: Array<Readable | Transform> = [incoming, ...decoders, limit]
@@ -57,7 +61,17 @@ export function bodyStream(
         teardown(error)
       }
 
-      incoming.on("error", fail)
+      incoming.on("error", (error) => {
+        fail(
+          error instanceof SafeFetchError || passThrough(error)
+            ? error
+            : new SafeFetchError(
+                SafeFetchErrorCode.NETWORK_ERROR,
+                "Response ended before the body was complete",
+                { cause: error },
+              ),
+        )
+      })
 
       for (const decoder of decoders) {
         decoder.on("error", (error) => {

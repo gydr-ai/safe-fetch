@@ -100,8 +100,12 @@ export function requestOnce(
     let settled = false
     let response: http.IncomingMessage | undefined
 
+    let abortedWith: Error | undefined
+
     const onAbort = (): void => {
       const reason = context.abortReason()
+
+      abortedWith = reason
 
       request.destroy(reason)
       response?.destroy(reason)
@@ -226,9 +230,15 @@ export function requestOnce(
         settle(
           () =>
             new Response(
-              bodyStream(incoming, decoders, context.maxResponseBytes, () => {
-                signal.removeEventListener("abort", onAbort)
-              }),
+              bodyStream(
+                incoming,
+                decoders,
+                context.maxResponseBytes,
+                () => {
+                  signal.removeEventListener("abort", onAbort)
+                },
+                (error) => error === abortedWith,
+              ),
               init,
             ),
         )

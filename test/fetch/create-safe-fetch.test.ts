@@ -552,6 +552,34 @@ describe("hostile servers", () => {
     }
   })
 
+  it("ends the body promptly when the connection drops mid-body", async () => {
+    const raw = createTcpServer((socket) => {
+      socket.once("data", () => {
+        socket.write("HTTP/1.1 200 OK\r\ncontent-length: 100000\r\n\r\npartial")
+        setTimeout(() => socket.destroy(), 20)
+      })
+    })
+
+    await new Promise<void>((resolve) => raw.listen(0, SERVER_IP, resolve))
+    const rawPort = (raw.address() as AddressInfo).port
+
+    try {
+      const response = await safeFetch(
+        `http://public.test:${String(rawPort)}/`,
+        {},
+        { ...opts, timeoutMs: 5_000 },
+      )
+      const started = Date.now()
+
+      await expect(response.text()).rejects.toMatchObject({
+        code: SafeFetchErrorCode.NETWORK_ERROR,
+      })
+      expect(Date.now() - started).toBeLessThan(1_000)
+    } finally {
+      raw.close()
+    }
+  })
+
   it("does not read the body when the URL is refused", async () => {
     let read = false
     const body = new Blob(["payload"])
