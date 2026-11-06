@@ -11,16 +11,29 @@ import { ipVersion, normalizeAddress } from "../helpers/ip.js"
 import { portOf } from "../helpers/port-of.js"
 import type { HopContext, HopRequest } from "../interfaces/hop.js"
 import { bodyStream } from "./body-stream.js"
+import { PIN_KEY_OPTION } from "./keep-alive-pool.js"
 import { pinnedLookup } from "./pinned-lookup.js"
 
-/** Methods safe to send again when a REUSED socket was closed under them. */
-const IDEMPOTENT_METHODS: ReadonlySet<string> = new Set([
-  "DELETE",
-  "GET",
-  "HEAD",
-  "OPTIONS",
-  "PUT",
-])
+/**
+ * Methods sent again when a REUSED socket was closed under them. Safe methods
+ * only: a server may have acted on a PUT or DELETE before it closed.
+ */
+const RETRY_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"])
+
+/** The transport errors of a pooled socket the server had already closed. */
+const STALE_SOCKET_CODES: ReadonlySet<string> = new Set(["ECONNRESET", "EPIPE"])
+
+/**
+ * Whether an error is a stale pooled socket: a reset or broken pipe.
+ *
+ * @param error - the request error.
+ * @returns `true` for `ECONNRESET` or `EPIPE`.
+ */
+function isStaleSocketError(error: Error): boolean {
+  const code: unknown = Reflect.get(error, "code")
+
+  return typeof code === "string" && STALE_SOCKET_CODES.has(code)
+}
 
 /**
  * A reason phrase `Response` accepts (RFC 9110: HTAB, SP, VCHAR, obs-text),
@@ -69,15 +82,29 @@ function responseHeadersOf(incoming: http.IncomingMessage): Headers {
 }
 
 /**
+ * The vetted addresses as one pool-key part, independent of their order.
+ *
+ * @param addresses - the addresses this request may connect to.
+ * @returns a stable key.
+ */
+function pinKeyOf(addresses: HopContext["addresses"]): string {
+  return addresses
+    .map((entry) => `${entry.family}/${entry.address}`)
+    .sort()
+    .join(",")
+}
+
+/**
  * Send one request, without following redirects, over a connection pinned to
  * the vetted addresses.
  *
  * Guarantees, in order: only the instance's own pool is ever reused (none
- * without `keepAlive`); a new socket can only dial `context.addresses`; TLS verifies the original hostname; a status
- * outside 200-599 is refused (a `Response` cannot represent it); a body is
- * refused if its encoding cannot be decoded or its declared length is over
- * the cap; and every abort (caller or deadline) destroys the request and
- * response at once.
+ * without `keepAlive`), and only a socket dialled for exactly
+ * `context.addresses`; a new socket can only dial `context.addresses`; TLS
+ * verifies the original hostname; a status outside 200-599 is refused (a
+ * `Response` cannot represent it); a body is refused if its encoding cannot
+ * be decoded or its declared length is over the cap; and every abort (caller
+ * or deadline) destroys the request and response at once.
  *
  * @param hop - the request to send.
  * @param context - the vetted addresses, signal and limits.
@@ -147,6 +174,8 @@ export function requestOnce(
         // instance's own pool, whose sockets all dialled a vetted address.
         agent,
         lookup: pinnedLookup(host, context.addresses),
+        // Keys the instance's pool by the vetted addresses (see the pool).
+        ...(pooled ? { [PIN_KEY_OPTION]: pinKeyOf(context.addresses) } : {}),
         ...(isHttps && ipVersion(host) === 0 ? { servername: host } : {}),
       },
       (incoming) => {
@@ -200,10 +229,22 @@ export function requestOnce(
         const hasBody = !NULL_BODY_STATUSES.has(status) && hop.method !== "HEAD"
 
         if (!hasBody) {
-          incoming.destroy()
           signal.removeEventListener("abort", onAbort)
           settled = true
-          settle(() => new Response(null, init))
+
+          if (!pooled) {
+            incoming.destroy()
+            settle(() => new Response(null, init))
+
+            return
+          }
+
+          // Nothing to read: answered once the (empty) message has ended, so
+          // its socket is already back in the pool for the next request.
+          incoming.once("end", () => {
+            settle(() => new Response(null, init))
+          })
+          incoming.resume()
 
           return
         }
@@ -272,7 +313,14 @@ export function requestOnce(
 
     signal.addEventListener("abort", onAbort, { once: true })
 
+    // Bytes the socket had read before this request: a stale socket closes
+    // without answering, so none arrive before the error.
+    let bytesBefore = 0
+
     if (pooled) {
+      request.on("socket", (socket) => {
+        bytesBefore = socket.bytesRead
+      })
       // Pooled sockets carry the pool's idle timer. Node only acts on it for
       // a FREE socket, but clear it anyway: the deadline alone bounds a
       // request in use.
@@ -303,10 +351,13 @@ export function requestOnce(
         !settled &&
         pooled &&
         request.reusedSocket &&
-        IDEMPOTENT_METHODS.has(hop.method)
+        RETRY_METHODS.has(hop.method) &&
+        isStaleSocketError(error) &&
+        request.socket?.bytesRead === bytesBefore
       ) {
-        // The server closed an idle pooled socket as this request was written
-        // to it: send it once more, on a new connection.
+        // The server had closed an idle pooled socket as this request was
+        // written to it (reset, nothing answered): send it once more, on a
+        // new connection.
         signal.removeEventListener("abort", onAbort)
         settled = true
         resolve(requestOnce(hop, context, true))

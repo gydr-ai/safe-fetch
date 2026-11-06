@@ -15,15 +15,18 @@ const closed: Socket[] = []
 const served = new WeakMap<Socket, number>()
 let hintSocket: Socket | undefined
 
+/** What the fake resolver answers; a test may change it between requests. */
+let answer: LookupResult[] = [{ address: "127.0.0.1", family: 4 }]
+
 function lookup(): Promise<readonly LookupResult[]> {
-  return Promise.resolve([{ address: "127.0.0.1", family: 4 }])
+  return Promise.resolve(answer)
 }
 
 /** A pooling and a non-pooling instance over the loopback server. */
 function instance(keepAlive: boolean): ReturnType<typeof createSafeFetch> {
   return createSafeFetch({
     lookup,
-    allowedRanges: ["127.0.0.1/32"],
+    allowedRanges: ["127.0.0.1/32", "::1/128"],
     allowHttp: true,
     keepAlive,
   })
@@ -65,6 +68,25 @@ beforeAll(async () => {
         setTimeout(() => response.end("slow"), 4_500)
 
         return
+      case "/partial-then-drop":
+        // On reuse: part of a response arrives, then the connection drops.
+        if (count > 1) {
+          socket.end("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n")
+
+          return
+        }
+
+        response.end("first")
+
+        return
+      case "/no-content":
+        response.statusCode = 204
+        response.end()
+
+        return
+      case "/hang":
+        // Never answers; the request ends by its own abort.
+        return
       case "/large":
         response.end("x".repeat(256 * 1024))
 
@@ -85,8 +107,9 @@ beforeAll(async () => {
     connections += 1
     socket.on("close", () => closed.push(socket))
   })
+  // Dual-stack, so a resolver answer may name 127.0.0.1 or ::1.
   await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", resolve)
+    server.listen(0, "::", resolve)
   })
   port = (server.address() as AddressInfo).port
 })
@@ -103,6 +126,7 @@ afterAll(async () => {
 beforeEach(() => {
   connections = 0
   closed.length = 0
+  answer = [{ address: "127.0.0.1", family: 4 }]
 })
 
 describe("keepAlive", () => {
@@ -202,6 +226,88 @@ describe("keepAlive", () => {
 
     expect(await response.text()).toBe("slow")
   }, 15_000)
+
+  it("dials a new connection when the host's vetted addresses change", async () => {
+    const seen: (readonly string[])[] = []
+    const safeFetch = createSafeFetch({
+      lookup,
+      allowedRanges: ["127.0.0.1/32", "::1/128"],
+      allowHttp: true,
+      keepAlive: true,
+      onRequest: ({ addresses }) => {
+        seen.push(addresses.map((entry) => entry.address))
+      },
+    })
+
+    await (await safeFetch(url("f.test", "/ok"))).text()
+    answer = [{ address: "::1", family: 6 }]
+    await (await safeFetch(url("f.test", "/ok"))).text()
+
+    // The old socket (to 127.0.0.1) is never used for the new answer (::1).
+    expect(connections).toBe(2)
+    expect(seen).toEqual([["127.0.0.1"], ["::1"]])
+  })
+
+  it("reuses the connection after a response without a body", async () => {
+    const safeFetch = instance(true)
+
+    expect((await safeFetch(url("g.test", "/no-content"))).status).toBe(204)
+    expect((await safeFetch(url("g.test", "/no-content"))).status).toBe(204)
+    expect(connections).toBe(1)
+  })
+
+  it("never sends a PUT twice", async () => {
+    const safeFetch = instance(true)
+
+    await (
+      await safeFetch(url("h.test", "/drop-on-reuse"), {
+        method: "PUT",
+        body: "x",
+      })
+    ).text()
+
+    await expect(
+      safeFetch(url("h.test", "/drop-on-reuse"), { method: "PUT", body: "x" }),
+    ).rejects.toMatchObject({ code: SafeFetchErrorCode.NETWORK_ERROR })
+    expect(connections).toBe(1)
+  })
+
+  it("never retries once part of a response has arrived", async () => {
+    const safeFetch = instance(true)
+
+    await (await safeFetch(url("i.test", "/partial-then-drop"))).text()
+
+    await expect(
+      safeFetch(url("i.test", "/partial-then-drop")),
+    ).rejects.toMatchObject({ code: SafeFetchErrorCode.NETWORK_ERROR })
+    expect(connections).toBe(1)
+  })
+
+  it("never queues a request behind other requests that hang", async () => {
+    const safeFetch = instance(true)
+    const controller = new AbortController()
+    const hanging = Array.from({ length: 40 }, () =>
+      safeFetch(url("j.test", "/hang"), { signal: controller.signal }).catch(
+        () => undefined,
+      ),
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 200))
+
+    const response = await safeFetch(
+      url("j.test", "/ok"),
+      {},
+      {
+        timeoutMs: 2_000,
+      },
+    )
+
+    expect(response.status).toBe(200)
+    await response.text()
+
+    controller.abort()
+    await Promise.all(hanging)
+  })
 
   it("refuses a keepAlive that is not a boolean", () => {
     expect(() =>

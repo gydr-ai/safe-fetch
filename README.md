@@ -191,12 +191,19 @@ const fetchApi = createSafeFetch({ keepAlive: true })
 
 Each instance owns its own pool, never Node's global agent. A connection
 joins it only after it was opened, through the pinned lookup, to an address
-that passed the checks, and it is reused only for the same hostname and port.
-Every request is still resolved and checked first. An idle connection closes
-after 4 seconds, or sooner when the server asks, and a body that is not read
-to its end closes its connection. If the server closed a reused connection
-just as a `GET`, `HEAD`, `OPTIONS`, `PUT` or `DELETE` was sent, the request is
-sent once more on a new connection; a `POST` never is.
+that passed the checks. Every request is still resolved and checked first,
+and a connection is reused only for the same hostname, port and set of
+checked addresses, so when DNS changes the next request opens a new one.
+
+- An idle connection closes after 4 seconds, or sooner when the server asks.
+- A connection whose body was not read to its end closes, and so does one
+  after a `HEAD` request (Node does not reuse those) or a followed redirect.
+- Connections in use are not capped, so slow requests to one host never
+  hold up requests to another.
+- If the server had just closed a reused connection, a `GET`, `HEAD` or
+  `OPTIONS` that got nothing back is sent once more on a new connection. A
+  `POST`, `PUT`, `DELETE` or any other method never is: the server may
+  already have acted on it.
 
 ### When another library owns the socket
 
