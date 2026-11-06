@@ -45,4 +45,17 @@ export interface SafeFetchConfig
    * `Proxy-Authorization`, which are always dropped. Default: none.
    */
   stripHeadersOnCrossOrigin?: readonly string[]
+  /**
+   * Reuse connections between requests of this instance. Each instance owns
+   * its own pool (never Node's global agent), and a socket joins it only
+   * after it connected, through the pinned lookup, to an address that passed
+   * the address policy, so a reused socket reaches an address already checked
+   * for that very host and port. Every request is still resolved and checked
+   * first. An idle socket closes after 4 seconds, or sooner when the server
+   * asks; a body that is not read to its end closes its socket. An
+   * idempotent request whose reused socket the server had just closed is sent
+   * once more on a new connection. Default: `false` (a new connection per
+   * request).
+   */
+  keepAlive?: boolean
 }

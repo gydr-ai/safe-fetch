@@ -158,6 +158,7 @@ export function fetchWith(dependencies: SafeFetchDependencies) {
         maxResponseBytes:
           options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
         decompress,
+        pool: dependencies.pool?.(),
       })
 
       try {

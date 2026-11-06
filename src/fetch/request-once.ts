@@ -13,13 +13,15 @@ import type { HopContext, HopRequest } from "../interfaces/hop.js"
 import { bodyStream } from "./body-stream.js"
 import { pinnedLookup } from "./pinned-lookup.js"
 
-/**
- * Copy Node's parsed response headers into a `Headers` object, keeping
- * every value of a repeated header.
- *
- * @param incoming - the response from `http.request`.
- * @returns the headers.
- */
+/** Methods safe to send again when a REUSED socket was closed under them. */
+const IDEMPOTENT_METHODS: ReadonlySet<string> = new Set([
+  "DELETE",
+  "GET",
+  "HEAD",
+  "OPTIONS",
+  "PUT",
+])
+
 /**
  * A reason phrase `Response` accepts (RFC 9110: HTAB, SP, VCHAR, obs-text),
  * or `""`. Node's parser accepts bytes such as DEL that `Response` rejects,
@@ -45,6 +47,13 @@ function safeStatusText(message: string | undefined): string {
   return message
 }
 
+/**
+ * Copy Node's parsed response headers into a `Headers` object, keeping
+ * every value of a repeated header.
+ *
+ * @param incoming - the response from `http.request`.
+ * @returns the headers.
+ */
 function responseHeadersOf(incoming: http.IncomingMessage): Headers {
   const headers = new Headers()
 
@@ -60,11 +69,11 @@ function responseHeadersOf(incoming: http.IncomingMessage): Headers {
 }
 
 /**
- * Send one request, without following redirects, over a fresh connection
- * pinned to the vetted addresses.
+ * Send one request, without following redirects, over a connection pinned to
+ * the vetted addresses.
  *
- * Guarantees, in order: no pooled socket is ever reused; the socket can only
- * dial `context.addresses`; TLS verifies the original hostname; a status
+ * Guarantees, in order: only the instance's own pool is ever reused (none
+ * without `keepAlive`); a new socket can only dial `context.addresses`; TLS verifies the original hostname; a status
  * outside 200-599 is refused (a `Response` cannot represent it); a body is
  * refused if its encoding cannot be decoded or its declared length is over
  * the cap; and every abort (caller or deadline) destroys the request and
@@ -72,6 +81,7 @@ function responseHeadersOf(incoming: http.IncomingMessage): Headers {
  *
  * @param hop - the request to send.
  * @param context - the vetted addresses, signal and limits.
+ * @param fresh - send on a new connection even when the instance pools.
  * @returns the response, with a size-capped, decoded body stream.
  * @throws {SafeFetchError} on a network, status, encoding or size failure.
  * @throws {Error} the abort reason when `context.signal` fires.
@@ -80,10 +90,18 @@ function responseHeadersOf(incoming: http.IncomingMessage): Headers {
 export function requestOnce(
   hop: HopRequest,
   context: HopContext,
+  fresh = false,
 ): Promise<Response> {
   const { url } = hop
   const isHttps = url.protocol === "https:"
   const transport = isHttps ? https : http
+  const pooled = context.pool !== undefined && !fresh
+  const agent =
+    context.pool === undefined || fresh
+      ? false
+      : isHttps
+        ? context.pool.https
+        : context.pool.http
   const host = normalizeAddress(url.hostname)
   const headers: Record<string, string> = {}
 
@@ -124,9 +142,10 @@ export function requestOnce(
         path: `${url.pathname}${url.search}`,
         method: hop.method,
         headers,
-        // A fresh agent per request: a pooled socket opened by other code in
-        // the process could point anywhere, and must never be reused here.
-        agent: false,
+        // Never Node's global agent: a socket opened by other code in the
+        // process could point anywhere. Either a new connection, or the
+        // instance's own pool, whose sockets all dialled a vetted address.
+        agent,
         lookup: pinnedLookup(host, context.addresses),
         ...(isHttps && ipVersion(host) === 0 ? { servername: host } : {}),
       },
@@ -253,7 +272,48 @@ export function requestOnce(
 
     signal.addEventListener("abort", onAbort, { once: true })
 
+    if (pooled) {
+      // Pooled sockets carry the pool's idle timer. Node only acts on it for
+      // a FREE socket, but clear it anyway: the deadline alone bounds a
+      // request in use.
+      request.on("socket", (socket) => {
+        socket.setTimeout(0)
+      })
+    }
+
+    // Node hands a 101 to `upgrade` listeners and never to the response
+    // callback; unhandled, the request would wait for the deadline.
+    request.on("upgrade", (_incoming, socket) => {
+      socket.destroy()
+
+      if (settled) return
+
+      signal.removeEventListener("abort", onAbort)
+      settled = true
+      reject(
+        new SafeFetchError(
+          SafeFetchErrorCode.NETWORK_ERROR,
+          "Response status 101 is not valid",
+        ),
+      )
+    })
+
     request.on("error", (error) => {
+      if (
+        !settled &&
+        pooled &&
+        request.reusedSocket &&
+        IDEMPOTENT_METHODS.has(hop.method)
+      ) {
+        // The server closed an idle pooled socket as this request was written
+        // to it: send it once more, on a new connection.
+        signal.removeEventListener("abort", onAbort)
+        settled = true
+        resolve(requestOnce(hop, context, true))
+
+        return
+      }
+
       if (settled) {
         // The body may still be streaming: end it, and keep the deadline
         // listener until the body stream's own teardown removes it.

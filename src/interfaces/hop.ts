@@ -1,4 +1,5 @@
 import type { ResolvedAddress } from "./resolved-address.js"
+import type { KeepAlivePool } from "../fetch/keep-alive-pool.js"
 
 /**
  * One request in a redirect chain.
@@ -32,4 +33,6 @@ export interface HopContext {
   maxResponseBytes: number
   /** Whether to decode `Content-Encoding`. */
   decompress: boolean
+  /** The instance's connection pool, or `undefined` for a new connection per request. */
+  pool: KeepAlivePool | undefined
 }
