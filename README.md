@@ -10,8 +10,13 @@
   <a href="https://www.npmjs.com/package/@gydr-ai/safe-fetch"><img alt="npm" src="https://img.shields.io/npm/v/@gydr-ai/safe-fetch" /></a>
   <a href="https://github.com/gydr-ai/safe-fetch/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/gydr-ai/safe-fetch/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/gydr-ai/safe-fetch"><img alt="OpenSSF Scorecard" src="https://api.scorecard.dev/projects/github.com/gydr-ai/safe-fetch/badge" /></a>
+  <img alt="Node.js 22.12+" src="https://img.shields.io/node/v/@gydr-ai/safe-fetch" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue" /></a>
+</p>
+
+<p align="center">
+  <sub>Built and maintained by <a href="https://gydr.ai"><strong>Gydr</strong></a></sub>
 </p>
 
 ---
@@ -23,6 +28,21 @@ service, an admin page, `localhost`. That is Server-Side Request Forgery
 ([CWE-918](https://cwe.mitre.org/data/definitions/918.html)).
 
 `safeFetch` is a drop-in `fetch` that refuses those requests.
+
+## Why not just check the URL?
+
+A check on the URL text, or a DNS lookup before calling `fetch`, misses most
+real attacks:
+
+| Attack                                                       | URL or DNS check alone | `safeFetch`                     |
+| ------------------------------------------------------------ | ---------------------- | ------------------------------- |
+| `http://2130706433/` (`127.0.0.1` as one number)             | Often passes           | Refused                         |
+| `https://[::ffff:169.254.169.254]/` (IPv4 inside IPv6)       | Often passes           | Refused                         |
+| A public name whose DNS answers with a private address       | Passes a text check    | Refused                         |
+| DNS rebinding: public at check time, private at connect time | Passes                 | Socket pinned to checked IP     |
+| A public URL that redirects to `http://localhost/admin`      | Passes                 | Redirects refused or re-checked |
+| A 1 KB response that inflates to gigabytes                   | Not covered            | Capped after decompression      |
+| A server that sends one byte a minute                        | Not covered            | One deadline for everything     |
 
 ## Highlights
 
@@ -45,6 +65,7 @@ service, an admin page, `localhost`. That is Server-Side Request Forgery
 
 ## Contents
 
+- [Why not just check the URL?](#why-not-just-check-the-url)
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Guides](#guides)
@@ -52,6 +73,8 @@ service, an admin page, `localhost`. That is Server-Side Request Forgery
 - [What is blocked](#what-is-blocked)
 - [Security model](#security-model)
 - [Compatibility](#compatibility)
+- [Security](#security)
+- [About Gydr](#about-gydr)
 
 ## Install
 
@@ -166,15 +189,16 @@ remains: prefer `safeFetch` wherever you can.
 
 ## API
 
-| Export                              | Purpose                                                       |
-| ----------------------------------- | ------------------------------------------------------------- |
-| `safeFetch(input, init?, options?)` | The guarded `fetch`. Returns a `Response`.                    |
-| `createSafeFetch(config?)`          | A `safeFetch` with your own defaults, rules and hooks.        |
-| `assertSafeUrl(input, policy?)`     | Validate a URL without the network. Returns the parsed `URL`. |
-| `resolveSafeUrl(input, policy?)`    | Validate a URL and every address it resolves to.              |
-| `isBlockedAddress(address)`         | The built-in decision for one IP address.                     |
-| `createAddressPolicy(options?)`     | That decision with your own extra and allowed ranges.         |
-| `SafeFetchError`, `UnsafeUrlError`  | The two error classes (see [Errors](#errors)).                |
+| Export                                  | Purpose                                                                 |
+| --------------------------------------- | ----------------------------------------------------------------------- |
+| `safeFetch(input, init?, options?)`     | The guarded `fetch`. Returns a `Response`.                              |
+| `createSafeFetch(config?)`              | A `safeFetch` with your own defaults, rules and hooks.                  |
+| `assertSafeUrl(input, policy?)`         | Validate a URL without the network. Returns the parsed `URL`.           |
+| `resolveSafeUrl(input, policy?)`        | Validate a URL and every address it resolves to.                        |
+| `isBlockedAddress(address)`             | The built-in decision for one IP address.                               |
+| `createAddressPolicy(options?)`         | That decision with your own extra and allowed ranges.                   |
+| `SafeFetchError`, `UnsafeUrlError`      | The two error classes (see [Errors](#errors)).                          |
+| `SafeFetchErrorCode`, `UnsafeUrlReason` | Frozen objects of the stable error codes, for `switch` and comparisons. |
 
 ### Options
 
@@ -326,13 +350,35 @@ cloud metadata service.
 ## Security
 
 Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
-Releases are built and published by GitHub Actions with npm provenance;
-`npm audit signatures` verifies them.
+Please do not open a public issue for a vulnerability.
+
+Every release is built and published by GitHub Actions with
+[npm provenance](https://docs.npmjs.com/generating-provenance-statements),
+and a maintainer approves each one with a hardware security key. Verify what
+you installed with:
+
+```bash
+npm audit signatures
+```
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for the development setup and the checks a change must pass.
+
+## About Gydr
+
+`@gydr-ai/safe-fetch` is built and maintained by [Gydr](https://gydr.ai), an
+AI chatbot platform that answers customers on websites, WhatsApp, Messenger,
+Instagram and Telegram. Our agents fetch URLs that customers and language
+models supply; this package grew out of the guard that keeps those requests
+out of our own network. See also [`@gydr-ai/mcp-oauth`](https://github.com/gydr-ai/mcp-oauth),
+OAuth 2.1 for remote MCP servers.
 
 ## License
 
-[Apache-2.0](LICENSE) © Gydr.ai
+[Apache-2.0](LICENSE) © [Gydr.ai](https://gydr.ai)
+
+<p align="center">
+  <a href="https://gydr.ai"><img alt="Gydr" src="https://img.shields.io/badge/made_by-Gydr-0f172a?style=for-the-badge" /></a>
+</p>
