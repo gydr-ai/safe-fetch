@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This file is
 maintained by release-please from Conventional Commit messages.
 
+## [0.1.3](https://github.com/gydr-ai/safe-fetch/compare/v0.1.2...v0.1.3) (2026-11-06)
+
+
+### Features
+
+* opt-in keepAlive reuses vetted connections within one instance ([#8](https://github.com/gydr-ai/safe-fetch/issues/8)) ([7e9ff9d](https://github.com/gydr-ai/safe-fetch/commit/7e9ff9dad0a7840165ec87ce1b79e45a0ef5b306))
+
 ## [0.1.2](https://github.com/gydr-ai/safe-fetch/compare/v0.1.1...v0.1.2) (2026-11-06)
 
 
