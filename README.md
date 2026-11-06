@@ -180,6 +180,31 @@ const fetchIntranet = createSafeFetch({
 Keep the range as narrow as you can, and never include one that holds a
 metadata service.
 
+### Connection reuse
+
+By default every request opens a new connection. A service that calls the
+same hosts often can reuse them:
+
+```ts
+const fetchApi = createSafeFetch({ keepAlive: true })
+```
+
+Each instance owns its own pool, never Node's global agent. A connection
+joins it only after it was opened, through the pinned lookup, to an address
+that passed the checks. Every request is still resolved and checked first,
+and a connection is reused only for the same hostname, port and set of
+checked addresses, so when DNS changes the next request opens a new one.
+
+- An idle connection closes after 4 seconds, or sooner when the server asks.
+- A connection whose body was not read to its end closes, and so does one
+  after a `HEAD` request (Node does not reuse those) or a followed redirect.
+- Connections in use are not capped, so slow requests to one host never
+  hold up requests to another.
+- If the server had just closed a reused connection, a `GET`, `HEAD` or
+  `OPTIONS` that got nothing back is sent once more on a new connection. A
+  `POST`, `PUT`, `DELETE` or any other method never is: the server may
+  already have acted on it.
+
 ### When another library owns the socket
 
 `resolveSafeUrl` checks a URL and every address it currently resolves to.
@@ -232,6 +257,7 @@ Everything `createSafeFetch` accepts, in addition to the options above.
 | `headers`                   | Default request headers. A per-call header of the same name wins.                                                 |
 | `stripHeadersOnCrossOrigin` | Extra headers dropped on a cross-origin redirect, on top of `Authorization`, `Cookie` and `Proxy-Authorization`.  |
 | `lookup`                    | Your own resolver, `(hostname) => Promise<{ address, family }[]>`. Its answers are still checked and pinned.      |
+| `keepAlive`                 | Reuse connections within this instance (default `false`). See [Connection reuse](#connection-reuse).              |
 
 ### Hooks
 
@@ -262,7 +288,8 @@ returns anything but `true`, `false` or nothing fails the request with
 - Credentials in custom headers (`X-Api-Key` and similar) follow a
   cross-origin redirect, as with `fetch`. Name them in
   `stripHeadersOnCrossOrigin`, or keep `redirect: "error"`.
-- No connection pooling, no proxy, no cookies.
+- No proxy, no cookies. Connections are reused only with `keepAlive`, and
+  only within one instance.
 
 ### Errors
 

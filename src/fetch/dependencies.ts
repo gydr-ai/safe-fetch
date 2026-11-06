@@ -12,6 +12,7 @@ import type {
 } from "../interfaces/safe-fetch-config.js"
 import type { SafeFetchDependencies } from "../interfaces/safe-fetch-dependencies.js"
 import type { SafeFetchHooks } from "../interfaces/safe-fetch-hooks.js"
+import { lazyKeepAlivePool, type KeepAlivePool } from "./keep-alive-pool.js"
 
 /**
  * Resolve a hostname with the operating system resolver, returning every
@@ -118,6 +119,27 @@ function hooksOf(config: SafeFetchHooks): SafeFetchHooks {
 }
 
 /**
+ * The instance's connection pool when `keepAlive` is set.
+ *
+ * @param config - the instance configuration.
+ * @returns a lazy pool getter, or `undefined` for a new connection per request.
+ * @throws {TypeError} when `keepAlive` is not a boolean.
+ */
+function poolOf(config: SafeFetchConfig): (() => KeepAlivePool) | undefined {
+  const keepAlive: unknown = ownProperty(config, "keepAlive")
+
+  switch (keepAlive) {
+    case undefined:
+    case false:
+      return undefined
+    case true:
+      return lazyKeepAlivePool()
+    default:
+      throw new TypeError("keepAlive must be a boolean")
+  }
+}
+
+/**
  * Validate a public configuration and turn it into what a `safeFetch`
  * instance runs with. Everything is copied, so changing the configuration
  * object afterwards has no effect, and only the object's own properties are
@@ -144,6 +166,7 @@ export function dependenciesFor(
       ownProperty(config, "stripHeadersOnCrossOrigin") ?? [],
     ),
     hooks: hooksOf(config),
+    pool: poolOf(config),
   }
 }
 

@@ -1,3 +1,4 @@
+import type { KeepAlivePool } from "../fetch/keep-alive-pool.js"
 import type { LookupResult } from "./safe-fetch-config.js"
 import type { SafeFetchHooks } from "./safe-fetch-hooks.js"
 import type { SafeFetchOptions } from "./safe-fetch-options.js"
@@ -23,4 +24,6 @@ export interface SafeFetchDependencies {
   crossOriginStripped: ReadonlySet<string>
   /** The integrator's hooks. */
   hooks: SafeFetchHooks
+  /** The instance's connection pool, or `undefined` for a new connection per request. */
+  pool: (() => KeepAlivePool) | undefined
 }
