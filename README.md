@@ -10,7 +10,7 @@
   <a href="https://www.npmjs.com/package/@gydr-ai/safe-fetch"><img alt="npm" src="https://img.shields.io/npm/v/@gydr-ai/safe-fetch" /></a>
   <a href="https://github.com/gydr-ai/safe-fetch/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/gydr-ai/safe-fetch/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/gydr-ai/safe-fetch"><img alt="OpenSSF Scorecard" src="https://api.scorecard.dev/projects/github.com/gydr-ai/safe-fetch/badge" /></a>
-  <img alt="Node.js 22.12+" src="https://img.shields.io/node/v/@gydr-ai/safe-fetch" />
+  <img alt="Node.js version" src="https://img.shields.io/node/v/@gydr-ai/safe-fetch" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue" /></a>
 </p>
@@ -82,7 +82,8 @@ real attacks:
 npm install @gydr-ai/safe-fetch
 ```
 
-Node.js 22.12 or later. ES modules only.
+Node.js 22.23.5+, 24.22.3+ or 26.13.1+ (the November 2026 Node.js security
+releases). ES modules only.
 
 ## Quick start
 
@@ -368,11 +369,14 @@ cloud metadata service.
 
 ## Compatibility
 
-| Node.js | Status                        |
-| ------- | ----------------------------- |
-| 26      | Tested in CI                  |
-| 24 LTS  | Tested in CI                  |
-| 22 LTS  | Tested in CI (22.12 or later) |
+| Node.js | Minimum | Status       |
+| ------- | ------- | ------------ |
+| 26 LTS  | 26.13.1 | Tested in CI |
+| 24 LTS  | 24.22.3 | Tested in CI |
+| 22 LTS  | 22.23.5 | Tested in CI |
+
+The minimum in each line moves up when Node.js ships a security release that
+fixes an API this package uses. CI always tests the newest patch of each line.
 
 ## Security
 
