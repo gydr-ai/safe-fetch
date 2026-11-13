@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This file is
 maintained by release-please from Conventional Commit messages.
 
+## [0.1.4](https://github.com/gydr-ai/safe-fetch/compare/v0.1.3...v0.1.4) (2026-11-13)
+
+
+### Bug Fixes
+
+* require a Node.js release with the November 2026 security fixes ([#13](https://github.com/gydr-ai/safe-fetch/issues/13)) ([eb30b25](https://github.com/gydr-ai/safe-fetch/commit/eb30b25f3c290e17520fc71d28f32137cb526baf))
+
 ## [0.1.3](https://github.com/gydr-ai/safe-fetch/compare/v0.1.2...v0.1.3) (2026-11-06)
 
 
