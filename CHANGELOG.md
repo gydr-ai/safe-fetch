@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. This file is
 maintained by release-please from Conventional Commit messages.
 
+## [0.1.5](https://github.com/gydr-ai/safe-fetch/compare/v0.1.4...v0.1.5) (2026-11-13)
+
+
+### Bug Fixes
+
+* build releases with pnpm 11.28.9 and keep the publish job download-free ([#16](https://github.com/gydr-ai/safe-fetch/issues/16)) ([0ef58b0](https://github.com/gydr-ai/safe-fetch/commit/0ef58b0e9ec373c28c54841fc5ba7f36fef5ae92))
+
 ## [0.1.4](https://github.com/gydr-ai/safe-fetch/compare/v0.1.3...v0.1.4) (2026-11-13)
 
 
